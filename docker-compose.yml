@@ -1,0 +1,8 @@
+services:
+  gene-graph-type-commits:
+    build:
+      context: ./activite-contributeurs/gene-graph-type-commits
+    container_name: gene-graph-type-commits
+    volumes:
+      - ./activite-contributeurs/data:/data:ro
+      - ./activite-contributeurs/outputs:/outputs
