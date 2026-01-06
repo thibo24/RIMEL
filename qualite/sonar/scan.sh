@@ -3,11 +3,10 @@
 # ==========================================
 # CONFIGURATION
 # Collez votre token généré ici (entre les guillemets)
-SONAR_TOKEN="votre_token_colle_ici_sqa_xxxxxx"
+SONAR_TOKEN="sqa_db9586e56cd8c54ffd69f67c2d813564e8d3a47c"
 
-OUT_ROOT="$(pwd)/out"
-RUN_ID="$(date +%Y%m%d_%H%M%S)"
-OUT_DIR="$OUT_ROOT/${REPO_NAME}_${RUN_ID}"
+OUT_ROOT="$(pwd)/output"
+OUT_DIR="$OUT_ROOT"
 SRC_BASE="$OUT_DIR/src"
 SRC_DIR="$SRC_BASE/$REPO_NAME"
 REPORT_DIR="$OUT_DIR/reports"
@@ -34,11 +33,6 @@ if [ -z "$REPO_URL" ]; then
   exit 1
 fi
 
-if [ "$SONAR_TOKEN" == "votre_token_colle_ici_sqa_xxxxxx" ]; then
-    echo "❌ ERREUR : Vous devez configurer le SONAR_TOKEN dans le script."
-    echo "   Allez sur http://localhost:9000 > My Account > Security > Generate Token"
-    exit 1
-fi
 
 REPO_NAME=$(basename $REPO_URL .git)
 PROJECT_KEY="${REPO_NAME}_$(date +%s)"
@@ -51,6 +45,11 @@ if [ ! "$(docker ps -q -f name=sonarqube-server)" ]; then
     docker-compose up -d
     until curl -s http://localhost:9000 > /dev/null; do sleep 5; echo -n "."; done
     echo ""
+fi
+
+if [[ -z "$SONAR_TOKEN" || "$SONAR_TOKEN" == "votre_token_colle_ici_sqa_xxxxxx" ]]; then
+    echo "❌ ERREUR : Vous devez configurer le SONAR_TOKEN dans le script."
+    exit 1
 fi
 
 # Détection du réseau
@@ -69,7 +68,6 @@ if [ "$CONVERT_NOTEBOOKS" = true ]; then
         python:3.9-slim \
         /bin/bash -c "pip install nbconvert --quiet && \
                       find /code -name '*.ipynb' -exec jupyter nbconvert --to python {} \;" > /dev/null 2>&1
-    # J'ai ajouté > /dev/null pour masquer les logs 'UserWarning' qui polluent l'affichage
     echo "✅ Conversion terminée."
 fi
 
