@@ -1,8 +1,11 @@
 services:
-  gene-graph-type-commits:
+  analysis:
     build:
-      context: ./activite-contributeurs/gene-graph-type-commits
-    container_name: gene-graph-type-commits
+      context: .
+      dockerfile: Dockerfile
+    container_name: rimel-analysis
     volumes:
-      - ./activite-contributeurs/data:/data:ro
-      - ./activite-contributeurs/outputs:/outputs
+      - ./:/app
+      - ./3-activite-contributeurs/outputs:/outputs
+    working_dir: /app
+    command: bash -c "echo 'Container ready'"

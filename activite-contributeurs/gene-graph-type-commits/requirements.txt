@@ -1,2 +1,0 @@
-pandas
-plotnine==0.15.2

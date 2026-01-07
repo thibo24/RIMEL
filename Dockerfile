@@ -8,9 +8,10 @@ RUN apt-get update && apt-get install -y \
     libpng-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-COPY generate_graphs.py .
+RUN pip install --no-cache-dir requests pandas plotnine
 
-CMD ["python", "generate_graphs.py"]
+# Copy scripts
+COPY . .
+
+CMD ["bash"]
