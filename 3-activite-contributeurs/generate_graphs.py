@@ -5,12 +5,21 @@ from plotnine import (
 )
 from pathlib import Path
 
-INPUT_CSV = "/data/repo_commits.csv"
-OUTPUT_DIR = Path("/outputs/graphs")
+CONTRIBUTORS_CSV = "2-nombre-contributeurs/data/contributors.csv"
+COMMITS_TYPES_CSV = "3-activite-contributeurs/data/commits_types.csv"
+OUTPUT_DIR = Path("3-activite-contributeurs/outputs/graphs")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-df = pd.read_csv(INPUT_CSV)
+# Charger les données
+df_contributors = pd.read_csv(CONTRIBUTORS_CSV)
+df_commits = pd.read_csv(COMMITS_TYPES_CSV)
 
+# Fusionner les deux datasets sur le nom du repo
+df = pd.merge(df_commits, df_contributors, on="repo", how="inner")
+
+print(f"Analyse de {len(df)} repos")
+
+# Calculer les ratios
 df["ratio_fix"] = df["fix"] / df["total_commits"]
 
 df_refactor = df[df["feat"] > 0].copy()
@@ -18,8 +27,9 @@ df_refactor["ratio_refactor_feat"] = (
     df_refactor["refactor"] / df_refactor["feat"]
 )
 
+# Graphique 1: Ratio fix vs contributeurs
 plot_fix = (
-    ggplot(df, aes(x="nombre_contributeurs", y="ratio_fix"))
+    ggplot(df, aes(x="contributors", y="ratio_fix"))
     + geom_point(alpha=0.7)
     + geom_smooth(method="lm", se=True)
     + theme_minimal()
@@ -37,9 +47,10 @@ plot_fix.save(
     dpi=300
 )
 
+# Graphique 2: Ratio refactor/feat vs contributeurs
 plot_refactor = (
     ggplot(df_refactor, aes(
-        x="nombre_contributeurs",
+        x="contributors",
         y="ratio_refactor_feat"
     ))
     + geom_point(alpha=0.7)
@@ -59,4 +70,5 @@ plot_refactor.save(
     dpi=300
 )
 
-print("Graphes générés avec succès.")
+print("Graphes generes avec succes.")
+
