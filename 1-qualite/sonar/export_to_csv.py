@@ -1,8 +1,11 @@
 import urllib.request
+import urllib.parse
+import urllib.error
 import json
 import csv
 import sys
 import base64
+import time
 
 # Récupération des arguments passés par le script bash
 if len(sys.argv) < 4:
@@ -19,7 +22,39 @@ auth_str = f"{TOKEN}:"
 b64_auth = base64.b64encode(auth_str.encode()).decode()
 headers = {"Authorization": f"Basic {b64_auth}"}
 
+print(f"🔑 Utilisation du token SonarQube pour le projet '{PROJECT_KEY}'")
+
+def count_files_via_component_tree(project_key: str, page_size: int = 500) -> int:
+    page = 1
+    total_count = 0
+    while True:
+        url = (
+            f"{SONAR_URL}/api/measures/component_tree"
+            f"?component={urllib.parse.quote(project_key)}"
+            f"&qualifiers=FIL"
+            f"&ps={page_size}&p={page}"
+        )
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+        components = data.get("components", []) or []
+        total_count += len(components)
+
+        paging = data.get("paging", {}) or {}
+        total_items = int(paging.get("total", 0) or 0)
+        page_index = int(paging.get("pageIndex", page) or page)
+        page_size_resp = int(paging.get("pageSize", page_size) or page_size)
+
+        if page_index * page_size_resp >= total_items or not components:
+            break
+        page += 1
+
+    return total_count
+
+
 def rating_to_score(v) -> int:
+    print(f"   → Conversion de la note/rating '{v}' en score 0..100")
     # Sonar renvoie souvent "1.0".."5.0" pour *_rating (A..E)
     # 1->A, 2->B, 3->C, 4->D, 5->E
     mapping_num = {1: 100, 2: 80, 3: 60, 4: 40, 5: 20}
@@ -36,130 +71,144 @@ def rating_to_score(v) -> int:
     except Exception:
         return 0
 
+
 def clamp_0_100(x: float) -> float:
     return max(0.0, min(100.0, x))
 
-def fetch_project_score(project_key: str) -> dict:
-    # Notes + duplication + cognitive complexity via measures
-    metric_keys = "reliability_rating,sqale_rating,security_rating,duplicated_lines_density,cognitive_complexity"
-    url = f"{SONAR_URL}/api/measures/component?component={project_key}&metricKeys={metric_keys}"
 
+def sonar_get_json(url: str, timeout: int = 60) -> dict:
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+def wait_for_measures(project_key: str, metric_keys: str, timeout_s: int = 180, step_s: int = 5) -> dict:
+    """
+    Attend que SonarQube retourne au moins une mesure (Compute Engine terminé).
+    """
+    url = f"{SONAR_URL}/api/measures/component?component={urllib.parse.quote(project_key)}&metricKeys={metric_keys}"
+    deadline = time.time() + timeout_s
+
+    last = None
+    while time.time() < deadline:
+        last = sonar_get_json(url)
+        measures = last.get("component", {}).get("measures", []) or []
+        if len(measures) > 0:
+            return last
+        print(f"   ... mesures pas prêtes (0 measure). Attente {step_s}s")
+        time.sleep(step_s)
+
+    raise RuntimeError(f"Timeout: aucune mesure dispo après {timeout_s}s pour {project_key}. Dernière réponse={last}")
+
+def pick_measure(measures: dict, *keys):
+    for k in keys:
+        v = measures.get(k)
+        if v is not None:
+            return v
+    return None
+
+def fetch_project_score(project_key: str) -> dict:
+    print(f"🔍 Récupération des métriques pour le projet '{project_key}'")
+
+    metric_keys = (
+        "software_quality_reliability_rating,"
+        "software_quality_maintainability_rating,"
+        "software_quality_security_rating,"
+        "duplicated_lines_density,"
+        "cognitive_complexity,"
+        "files"
+    )
+
+    print(f"   → Récupération des mesures depuis {SONAR_URL} (attente si besoin)")
+    data = wait_for_measures(project_key, metric_keys, timeout_s=240, step_s=5)
 
     measures = {m["metric"]: m.get("value") for m in data.get("component", {}).get("measures", [])}
 
-    reliability = rating_to_score(measures.get("reliability_rating"))
-    maintainability = rating_to_score(measures.get("sqale_rating"))
-    security = rating_to_score(measures.get("security_rating"))
+    reliability_v = pick_measure(measures, "software_quality_reliability_rating")
+    maintainability_v = pick_measure(measures, "software_quality_maintainability_rating")
+    security_v = pick_measure(measures, "software_quality_security_rating")
 
-    # Duplication: max(0, 100 - duplication(%))
+    reliability = rating_to_score(reliability_v)
+    maintainability = rating_to_score(maintainability_v)
+    security = rating_to_score(security_v)
     try:
         duplication_density = float(measures.get("duplicated_lines_density") or 0.0)
     except Exception:
         duplication_density = 0.0
-    duplication = max(0.0, 100.0 - duplication_density)
+    duplication = max(0.0, 100.0 - duplication_density * 5)
 
-    # Complexity: max(0, 100 - cognitive_complexity)
     try:
-        cognitive = float(measures.get("cognitive_complexity") or 0.0)
+        cognitive_global = float(measures.get("cognitive_complexity") or 0.0)
     except Exception:
-        cognitive = 0.0
-    complexity = max(0.0, 100.0 - cognitive)
+        cognitive_global = 0.0
+
+    # nb fichiers: via 'files' si présent, sinon fallback fiable
+    try:
+        nb_files = int(float(measures.get("files"))) if measures.get("files") is not None else 0
+    except Exception:
+        nb_files = 0
+
+    if nb_files <= 0:
+        print("   → Métrique 'files' absente/invalide, fallback sur component_tree (FIL)...")
+        nb_files = count_files_via_component_tree(project_key)
+
+    avg_cognitive_per_file = (cognitive_global / nb_files) if nb_files > 0 else 0.0
+
+    # score 0..100 à calibrer
+    complexity_score = clamp_0_100(100.0 - (avg_cognitive_per_file * 5))
 
     score = (
         0.25 * reliability +
         0.20 * maintainability +
         0.15 * security +
         0.20 * duplication +
-        0.20 * complexity
+        0.20 * complexity_score
     )
 
     return {
-        "reliability": float(reliability),
-        "maintainability": float(maintainability),
-        "security": float(security),
-        "duplication": clamp_0_100(duplication),
-        "complexity": clamp_0_100(complexity),
-        "score": clamp_0_100(score),
+        "project_key": project_key,
+        "score": round(clamp_0_100(score), 2),
+        "reliability": round(float(reliability), 2),
+        "maintainability": round(float(maintainability), 2),
+        "security": round(float(security), 2),
+        "duplication": round(clamp_0_100(duplication), 2),
+        "avg_cognitive_per_file": round(float(avg_cognitive_per_file), 2),
+        "complexity": round(float(complexity_score), 2),
+        "nb_files": int(nb_files),
+        "cognitive_global": round(float(cognitive_global), 2),
     }
 
-print(f"📥 Récupération des données pour {PROJECT_KEY}...")
+print(f"📥 Récupération des scores pour {PROJECT_KEY}...")
 
-# 0) Récupération métriques + calcul score
 try:
     score_info = fetch_project_score(PROJECT_KEY)
-    print(
-        f"🏁 Score={score_info['score']:.2f}/100 "
-        f"(R={score_info['reliability']:.0f}, M={score_info['maintainability']:.0f}, "
-        f"S={score_info['security']:.0f}, D={score_info['duplication']:.2f}, C={score_info['complexity']:.2f})"
-    )
 except Exception as e:
-    print(f"⚠️ Impossible de récupérer les métriques pour le score: {e}")
-    score_info = {"reliability": 0, "maintainability": 0, "security": 0, "duplication": 0, "complexity": 0, "score": 0}
+    print(f"❌ Impossible de récupérer les métriques: {e}")
+    sys.exit(2)
 
-issues_all = []
-page = 1
-page_size = 500  # Max autorisé par l'API par page
+print(
+    f"🏁 Score={score_info['score']:.2f}/100 "
+    f"(R={score_info['reliability']:.0f}, M={score_info['maintainability']:.0f}, "
+    f"S={score_info['security']:.0f}, D={score_info['duplication']:.2f}, "
+    f"avgCC/file={score_info['avg_cognitive_per_file']:.4f})"
+)
 
-while True:
-    # On appelle l'API pour chercher les issues
-    url = f"{SONAR_URL}/api/issues/search?componentKeys={PROJECT_KEY}&ps={page_size}&p={page}"
+# CSV (1 ligne) => facile à agréger ensuite
+fieldnames = [
+    "project_key",
+    "score",
+    "reliability",
+    "maintainability",
+    "security",
+    "duplication",
+    "complexity",
+    "avg_cognitive_per_file",
+    "nb_files",
+    "cognitive_global",
+]
 
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as response:
-            data = json.loads(response.read().decode())
-
-            issues = data.get('issues', [])
-            if not issues:
-                break
-
-            issues_all.extend(issues)
-
-            # Pagination : si on a moins de résultats que la taille de page, c'est fini
-            if len(issues) < page_size:
-                break
-
-            page += 1
-            print(f"   ... Page {page} récupérée")
-
-    except Exception as e:
-        print(f"❌ Erreur lors de l'appel API: {e}")
-        sys.exit(1)
-
-print(f"💾 Écriture de {len(issues_all)} problèmes dans {OUTPUT_FILE}...")
-
-# Écriture du CSV
-with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as csvfile:
-    # 1) Une ligne "meta" au début avec le score global
-    csvfile.write(
-        "# "
-        f"project_key={PROJECT_KEY}, "
-        f"project_score={score_info['score']:.2f}/100, "
-        f"reliability={score_info['reliability']:.0f}, "
-        f"maintainability={score_info['maintainability']:.0f}, "
-        f"security={score_info['security']:.0f}, "
-        f"duplication={score_info['duplication']:.2f}, "
-        f"complexity={score_info['complexity']:.2f}"
-        "\n"
-    )
-
-    fieldnames = ['severity', 'type', 'component', 'line', 'message', 'effort', 'status', 'project_score']
+with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-
     writer.writeheader()
-    for issue in issues_all:
-        writer.writerow({
-            'severity': issue.get('severity', ''),
-            'type': issue.get('type', ''),
-            'component': issue.get('component', ''),
-            'line': issue.get('line', ''),
-            'message': issue.get('message', ''),
-            'effort': issue.get('effort', ''),
-            'status': issue.get('status', ''),
-            'project_score': f"{score_info['score']:.2f}",
-        })
+    writer.writerow(score_info)
 
-print("✅ Export CSV terminé !")
+print(f"✅ Export score CSV terminé : {OUTPUT_FILE}")
