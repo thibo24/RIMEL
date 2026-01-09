@@ -96,7 +96,8 @@ scan_one() {
     -Dsonar.token="$SONAR_TOKEN" \
     -Dsonar.scm.provider=git \
     -Dsonar.sources=. \
-    -Dsonar.exclusions="**/*.ipynb"
+    -Dsonar.exclusions="**/*.html" \
+    -Dsonar.javascript.node.maxspace=4096
 
   sleep 5  # attendre que SonarQube traite l'analyse
   # Export
