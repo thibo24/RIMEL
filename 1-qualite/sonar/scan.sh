@@ -58,7 +58,7 @@ if [ -z "$SONAR_NETWORK" ] || [ "$SONAR_NETWORK" = "default" ]; then
 fi
 
 SUMMARY_CSV="$OUT_ROOT/summary.csv"
-echo "repo_url,sha_commit,score,reliability,maintainability,security,duplication,avg_cognitive_per_file,complexity" > "$SUMMARY_CSV"
+echo "repo_url,sha_commit,score,reliability,maintainability,security,duplication,complexity" > "$SUMMARY_CSV"
 
 scan_one() {
   local REPO_URL="$1"
@@ -90,6 +90,7 @@ scan_one() {
   docker run --rm \
     --network "$SONAR_NETWORK" \
     -v "$SRC_DIR:/usr/src" \
+    -w /usr/src \
     sonarsource/sonar-scanner-cli \
    -Dsonar.projectKey="$PROJECT_KEY" \
     -Dsonar.host.url=http://sonarqube-server:9000 \
@@ -115,16 +116,17 @@ scan_one() {
 
   # Lire la ligne data (2e ligne) du CSV généré
   HOST_CSV_PATH="$REPORT_DIR/$CSV_FILENAME"
-  SCORE_LINE="$(tail -n +2 "$HOST_CSV_PATH" | head -n 1 || true)"
+  SCORE_LINE="$(tail -n +2 "$HOST_CSV_PATH" | head -n 1 | tr -d '\r' || true)"
 
   if [ -z "$SCORE_LINE" ]; then
     echo "⚠️ CSV vide: $HOST_CSV_PATH"
     echo "$REPO_URL,$REPO_NAME,$PROJECT_KEY,,,,,,,,,,$CSV_OUT_PATH" >> "$SUMMARY_CSV"
     return 0
   fi
+  SCORES_ONLY="$(echo "$SCORE_LINE" | awk -F',' '{print $2","$3","$4","$5","$6","$7}')"
 
   # SCORE_LINE est déjà un CSV: project_key,score,reliability,...
-  echo "$REPO_URL,$SHA_COMMIT,$SCORE_LINE" >> "$SUMMARY_CSV"
+  echo "$REPO_URL,$SHA_COMMIT,$SCORES_ONLY" >> "$SUMMARY_CSV"
 
   echo "✅ OK -> $SUMMARY_CSV"
 }
