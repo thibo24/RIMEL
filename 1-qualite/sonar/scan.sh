@@ -12,10 +12,12 @@ mkdir -p "$SRC_BASE" "$REPORT_DIR"
 # ==========================================
 
 REPOS_FILE=""
+USE_SHA_COLUMN=false
 
-while getopts "f:" opt; do
+while getopts "f:s" opt; do
   case $opt in
     f) REPOS_FILE="$OPTARG" ;;
+    s) USE_SHA_COLUMN=true ;;
     \?) echo "Option invalide: -$OPTARG" >&2; exit 1 ;;
   esac
 done
@@ -26,7 +28,7 @@ REPO_URL="${1:-}"
 if [[ -z "$REPOS_FILE" && -z "$REPO_URL" ]]; then
   echo "Usage:"
   echo "  ./scan.sh  <URL_DU_REPO>"
-  echo "  ./scan.sh -f <repos.csv>"
+  echo "  ./scan.sh -f <repos.csv> [-s]"
   exit 1
 fi
 
@@ -43,8 +45,6 @@ fi
 # --- SonarQube up ---
 echo "🐳 Vérification de SonarQube..."
 if [ ! "$(docker ps -q -f name=sonarqube-server)" ]; then
-  echo "   -> Démarrage..."
-  docker-compose up -d
   until curl -s http://localhost:9000 > /dev/null; do sleep 5; echo -n "."; done
   echo ""
 fi
@@ -131,24 +131,47 @@ scan_one() {
   echo "✅ OK -> $SUMMARY_CSV"
 }
 
+
 if [[ -n "$REPOS_FILE" ]]; then
   echo "📥 Lecture repos depuis: $REPOS_FILE"
-  # CSV simple: une URL par ligne (avec ou sans header). On ignore lignes vides et commentaires.
-  while IFS= read -r line; do
-    line="$(echo "$line" | tr -d '\r')"
-    [[ -z "$line" ]] && continue
-    [[ "$line" =~ ^# ]] && continue
 
-    # si format "repo_url,..." on prend la 1ere colonne
-    repo="$(echo "$line" | awk -F',' '{print $1}')"
+  # Lire le header (1ère ligne) et détecter l'index de la colonne repo_url
+  header="$(head -n 1 "$REPOS_FILE" | tr -d '\r')"
+  IFS=',' read -r -a cols <<< "$header"
 
-    # skip header
-    if [[ "$repo" == "repo_url" ]]; then
-      continue
+  repo_url_idx=-1
+  for i in "${!cols[@]}"; do
+    col="$(echo "${cols[$i]}" | xargs)"   # trim spaces
+    if [[ "$col" == "repo_url" || "$col" == "repo" || "$col" == "url" ]]; then
+      repo_url_idx="$i"
+      break
     fi
+  done
 
-    scan_one "$repo"
-  done < "$REPOS_FILE"
+  # Si pas de header (ex: fichier "1 url par ligne"), on traite comme une liste simple
+  if [[ "$repo_url_idx" -lt 0 ]]; then
+    echo "ℹ️ Pas de colonne repo_url détectée dans le header. Fallback: 1 URL par ligne."
+    while IFS= read -r line; do
+      line="$(echo "$line" | tr -d '\r')"
+      [[ -z "$line" ]] && continue
+      [[ "$line" =~ ^# ]] && continue
+      scan_one "$line"
+    done < "$REPOS_FILE"
+  else
+    echo "✅ Colonne repo_url détectée à l'index $((repo_url_idx+1))"
+    # Lire le fichier en sautant le header
+    tail -n +2 "$REPOS_FILE" | while IFS= read -r line; do
+      line="$(echo "$line" | tr -d '\r')"
+      [[ -z "$line" ]] && continue
+      [[ "$line" =~ ^# ]] && continue
+
+      IFS=',' read -r -a fields <<< "$line"
+      repo_url="$(echo "${fields[$repo_url_idx]:-}" | xargs)"
+
+      [[ -z "$repo_url" ]] && continue
+      scan_one "$repo_url"
+    done
+  fi
 else
   scan_one "$REPO_URL"
 fi

@@ -9,3 +9,17 @@ services:
       - ./3-activite-contributeurs/outputs:/outputs
     working_dir: /app
     command: bash -c "echo 'Container ready'"
+
+  sonarqube:
+    image: sonarqube:community
+    container_name: sonarqube-server
+    ports:
+      - "9000:9000"
+    networks:
+      - sonar-net
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+
+networks:
+  sonar-net:
+    driver: bridge
