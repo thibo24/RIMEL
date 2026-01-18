@@ -40,6 +40,9 @@ groups = [
 
 print(f"Analyse de {len(df)} repos")
 
+global_median = df["score"].median()
+print(f"Médiane globale: {global_median:.2f}\n")
+
 for group_num, group_label in groups:
     df_group = df[df["repo_group"] == group_num].copy()
     
@@ -55,6 +58,7 @@ for group_num, group_label in groups:
         ggplot(df_group, aes(x="repo_name", y="score"))
         + geom_bar(stat="identity", fill="steelblue", alpha=0.7)
         + geom_hline(yintercept=median_score, color="red", linetype="dashed", size=1)
+        + geom_hline(yintercept=global_median, color="orange", linetype="dashed", size=1)
         + theme_minimal()
         + theme(
             axis_text_x=element_text(rotation=45, hjust=1, size=8),
@@ -64,7 +68,7 @@ for group_num, group_label in groups:
             title=f"Score de qualité par rapport à la médiane pour les dépôts de {group_label.split('(')[1].split(')')[0]}",
             x="Nom du dépôt",
             y="Score de qualité",
-            caption=f"Ligne rouge: médiane = {median_score:.2f}"
+            caption=f"Ligne rouge: médiane du groupe = {median_score:.2f} | Ligne orange: médiane globale = {global_median:.2f}"
         )
     )
     
