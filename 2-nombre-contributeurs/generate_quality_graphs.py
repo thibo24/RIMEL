@@ -47,24 +47,24 @@ for group_num, group_label in groups:
         print(f"Aucune donnée pour le {group_label}")
         continue
     
-    mean_score = df_group["score"].mean()
-    print(f"{group_label}: {len(df_group)} repos, moyenne = {mean_score:.2f}")
+    median_score = df_group["score"].median()
+    print(f"{group_label}: {len(df_group)} repos, médiane = {median_score:.2f}")
     df_group = df_group.sort_values("score")
     
     plot = (
         ggplot(df_group, aes(x="repo_name", y="score"))
         + geom_bar(stat="identity", fill="steelblue", alpha=0.7)
-        + geom_hline(yintercept=mean_score, color="red", linetype="dashed", size=1)
+        + geom_hline(yintercept=median_score, color="red", linetype="dashed", size=1)
         + theme_minimal()
         + theme(
             axis_text_x=element_text(rotation=45, hjust=1, size=8),
             figure_size=(12, 6)
         )
         + labs(
-            title=f"Score de qualité par rapport à la moyenne pour les dépôts de {group_label.split('(')[1].split(')')[0]}",
+            title=f"Score de qualité par rapport à la médiane pour les dépôts de {group_label.split('(')[1].split(')')[0]}",
             x="Nom du dépôt",
             y="Score de qualité",
-            caption=f"Ligne rouge: moyenne = {mean_score:.2f}"
+            caption=f"Ligne rouge: médiane = {median_score:.2f}"
         )
     )
     
