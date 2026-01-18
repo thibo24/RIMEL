@@ -12,16 +12,21 @@ if [ ! -f "3-activite-contributeurs/data/raw_commits_data.json" ]; then
     echo ""
 fi
 
-echo "=== Etape 1/3: Recuperation du nombre de contributeurs ==="
+echo "=== Etape 1/4: Recuperation du nombre de contributeurs ==="
 docker-compose run --rm analysis python 2-nombre-contributeurs/get_contributors.py
 echo ""
 
-echo "=== Etape 2/3: Analyse des types de commits ==="
+echo "=== Etape 2/4: Analyse des types de commits ==="
 docker-compose run --rm analysis python 3-activite-contributeurs/get_commits_types.py
 echo ""
 
-echo "=== Etape 3/3: Generation des graphiques ==="
+echo "=== Etape 3/4: Generation des premiers graphiques ==="
 docker-compose run --rm analysis python 3-activite-contributeurs/generate_graphs.py
+echo ""
+
+echo "=== Etape 4/4: Generation des derniers graphiques ==="
+docker-compose run --rm analysis python 4-generation-graphiques/generate_graphs.py
+docker-compose run --rm analysis python 4-generation-graphiques/generate-violin-graph.py
 echo ""
 
 echo "=== Pipeline termine avec succes! ==="
@@ -30,3 +35,4 @@ echo "Resultats:"
 echo "  - 2-nombre-contributeurs/data/contributors.csv"
 echo "  - 3-activite-contributeurs/data/commits_types.csv"
 echo "  - 3-activite-contributeurs/outputs/graphs/*.png"
+echo "  - 4-generation-graphiques/outputs/graphs/*.png"
