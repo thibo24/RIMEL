@@ -1,7 +1,7 @@
 import pandas as pd
 from plotnine import (
-    ggplot, aes, geom_bar, geom_hline,
-    labs, theme_minimal, theme, element_text
+    ggplot, aes, geom_bar, geom_hline, geom_boxplot,
+    labs, theme_minimal, theme, element_text, scale_x_discrete
 )
 from pathlib import Path
 
@@ -80,5 +80,51 @@ for group_num, group_label in groups:
         dpi=300
     )
     print(f"Graphique sauvegardé: {filename}")
+
+print("\n=== Génération du diagramme en boîtes ===")
+df_boxplot = df.copy()
+df_boxplot["group_label"] = pd.Categorical(
+    df_boxplot["group_label"],
+    categories=[
+        "Groupe 1 (0-8 contributeurs)",
+        "Groupe 2 (9-19 contributeurs)",
+        "Groupe 3 (20+ contributeurs)"
+    ],
+    ordered=True
+)
+
+for group_num, group_label in groups:
+    df_group_stats = df_boxplot[df_boxplot["repo_group"] == group_num]
+    if len(df_group_stats) > 0:
+        print(f"\n{group_label}:")
+        print(f"  Min: {df_group_stats['score'].min():.2f}")
+        print(f"  Q1 (25%): {df_group_stats['score'].quantile(0.25):.2f}")
+        print(f"  Médiane (50%): {df_group_stats['score'].median():.2f}")
+        print(f"  Q3 (75%): {df_group_stats['score'].quantile(0.75):.2f}")
+        print(f"  Max: {df_group_stats['score'].max():.2f}")
+
+boxplot = (
+    ggplot(df_boxplot, aes(x="group_label", y="score", fill="group_label"))
+    + geom_boxplot(alpha=0.7, show_legend=False)
+    + theme_minimal()
+    + theme(
+        axis_text_x=element_text(rotation=15, hjust=1, size=10),
+        figure_size=(10, 6)
+    )
+    + labs(
+        title="Distribution des scores de qualité par groupe de contributeurs",
+        x="Groupe de dépôts",
+        y="Score de qualité",
+    )
+)
+
+boxplot_filename = "qualite_boxplot_groupes.png"
+boxplot.save(
+    OUTPUT_DIR / boxplot_filename,
+    width=10,
+    height=6,
+    dpi=300
+)
+print(f"\nDiagramme en boîtes sauvegardé: {boxplot_filename}")
 
 print("\nTous les graphiques ont été générés avec succès dans", OUTPUT_DIR)
