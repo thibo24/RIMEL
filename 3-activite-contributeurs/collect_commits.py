@@ -1,82 +1,48 @@
 """
-Collect raw commit data from GitHub repositories.
-This script should be run ONCE to gather all commit messages.
-Without token: 60 req/h (slow)
-With token: 5000 req/h (fast)
+Collect raw commit data from local git repositories.
+This script uses the cloned repos from 1-qualite/outputs/src/
+to extract commit messages using git log (no API calls needed).
 
 Usage:
     python collect_commits.py
-    python collect_commits.py your_token
 """
 import csv
-import requests
+import subprocess
 import json
-import sys
-from time import sleep
 from pathlib import Path
 
-def get_repo_info(url):
-    parts = url.rstrip('/').split('/')
-    return parts[-2], parts[-1]
+def get_repo_name(url):
+    """Extract repo name from URL."""
+    return url.rstrip('/').split('/')[-1]
 
-def collect_commits(owner, repo, token=None):
-    headers = {'Authorization': f'token {token}'} if token else {}
-    commits = []
-    page = 1
-    
-    print(f"  Collecte des commits...")
-    
-    while True:
-        url = f"https://api.github.com/repos/{owner}/{repo}/commits"
-        params = {'per_page': 100, 'page': page}
-        
-        try:
-            response = requests.get(url, params=params, headers=headers, timeout=30)
-            
-            if response.status_code == 403:
-                print(f"  [WARN] Limite atteinte - attente de 5min...")
-                sleep(300)
-                continue
-            elif response.status_code != 200:
-                print(f"  [ERREUR] Status {response.status_code}")
-                break
-            
-            data = response.json()
-            if not data:
-                break
-            
-            for commit in data:
-                commits.append(commit['commit']['message'].split('\n')[0])
-            
-            print(f"  -> {len(commits)} commits...", end='\r')
-            
-            if len(data) < 100:
-                break
-            
-            page += 1
-            sleep(0.5)
-            
-        except Exception as e:
-            print(f"  [ERREUR] {e}")
-            break
-    
-    print(f"  [OK] {len(commits)} commits collectes")
-    return commits
+def collect_commits_from_local(repo_path):
+    """Extract commit messages using git log."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "--pretty=format:%s"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        commits = result.stdout.strip().split('\n')
+        return [c for c in commits if c]  # Filter empty lines
+    except Exception as e:
+        print(f"  [ERREUR] {e}")
+        return []
 
 def main():
-    print("=== Collecte des donnees de commits ===\n")
-    
-    token = sys.argv[1] if len(sys.argv) > 1 else None
-    
-    if token:
-        print("[INFO] Token fourni - Limite: 5000 req/h")
-    else:
-        print("[INFO] Pas de token - Limite: 60 req/h")
-        print("       Pour accelerer: python collect_commits.py YOUR_TOKEN")
+    print("=== Collecte des donnees de commits (depuis clones locaux) ===\n")
     
     repos_csv = Path("repos_url.csv")
     if not repos_csv.exists():
         print(f"[ERREUR] repos_url.csv introuvable!")
+        return
+    
+    clones_dir = Path("1-qualite/outputs/src")
+    if not clones_dir.exists():
+        print(f"[ERREUR] Le dossier {clones_dir} n'existe pas!")
+        print("Lancez d'abord l'analyse SonarQube pour cloner les dépôts.")
         return
     
     repos = []
@@ -84,31 +50,53 @@ def main():
         reader = csv.DictReader(f)
         for row in reader:
             if row['repo_url']:
-                repos.append(row['repo_url'])
+                repos.append((row['repo_name'], row['repo_url']))
     
     all_data = {}
     
-    for i, repo_url in enumerate(repos, 1):
-        owner, repo_name = get_repo_info(repo_url)
+    for i, (repo_name, repo_url) in enumerate(repos, 1):
+        repo_path = clones_dir / repo_name
+        
         print(f"[{i}/{len(repos)}] {repo_name}")
         
-        commits = collect_commits(owner, repo_name, token)
+        if not repo_path.exists():
+            print(f"  [WARN] Dépôt non trouvé: {repo_path}")
+            print(f"  Clonage...")
+            try:
+                subprocess.run(["git", "clone", repo_url, str(repo_path)], check=True)
+            except Exception as e:
+                print(f"  [ERREUR] Échec du clonage: {e}")
+                continue
         
+        print(f"  Extraction des commits via git log...")
+        commits = collect_commits_from_local(repo_path)
+        
+        owner = repo_url.rstrip('/').split('/')[-2]
         all_data[repo_name] = {
             "repo": repo_name,
             "owner": owner,
             "commits": commits
         }
         
-        print()
+        print(f"  [OK] {len(commits)} commits collectes\n")
     
-    output_file = Path("data/raw_commits_data.json")
+    output_file = Path("3-activite-contributeurs/data/raw_commits_data.json")
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(all_data, f, indent=2, ensure_ascii=False)
     
     total_commits = sum(len(d['commits']) for d in all_data.values())
     print(f"Donnees sauvegardees dans {output_file}")
     print(f"     {len(all_data)} repos, {total_commits} commits")
+    
+    # Nettoyer les clones pour libérer l'espace disque
+    print(f"\n🗑️  Nettoyage des dépôts clonés...")
+    try:
+        subprocess.run(["rm", "-rf", str(clones_dir)], check=True)
+        print(f"✅ Dépôts supprimés: {clones_dir}")
+    except Exception as e:
+        print(f"⚠️  Erreur lors du nettoyage: {e}")
 
 if __name__ == "__main__":
     main()

@@ -5,7 +5,7 @@ from plotnine import (
 )
 from pathlib import Path
 
-SUMMARY_CSV = "1-qualite/sonar/output/summary.csv"
+SUMMARY_CSV = "1-qualite/outputs/summary.csv"
 REPOS_GROUPS_CSV = "2-nombre-contributeurs/repos_groups.csv"
 CONTRIBUTORS_CSV = "2-nombre-contributeurs/data/contributors.csv"
 OUTPUT_DIR = Path("2-nombre-contributeurs/graphs")

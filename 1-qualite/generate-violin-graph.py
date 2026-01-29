@@ -5,8 +5,8 @@ from plotnine import (
 )
 from pathlib import Path
 
-SUMMARY_CSV = Path("1-qualite/sonar/output/summary.csv")
-OUTPUT_DIR = Path("4-generation-graphiques/graphs")
+SUMMARY_CSV = Path("1-qualite/outputs/summary.csv")
+OUTPUT_DIR = Path("1-qualite/outputs")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Charger les données
