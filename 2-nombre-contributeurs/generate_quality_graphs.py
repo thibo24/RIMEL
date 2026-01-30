@@ -89,11 +89,7 @@ print("\n=== Génération du diagramme en boîtes ===")
 df_boxplot = df.copy()
 df_boxplot["group_label"] = pd.Categorical(
     df_boxplot["group_label"],
-    categories=[
-        "Groupe 1 (0-8 contributeurs)",
-        "Groupe 2 (9-19 contributeurs)",
-        "Groupe 3 (20+ contributeurs)"
-    ],
+    categories=[label for _, label in groups],
     ordered=True
 )
 

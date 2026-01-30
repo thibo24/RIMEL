@@ -1,6 +1,19 @@
 #!/bin/bash
 set -e
 
+# On Windows using Git Bash / MSYS the shell auto-converts POSIX paths
+# (e.g. /usr/src) into Windows paths under the Git installation directory
+# which breaks Docker CLI flags like -v and -w. Disable that automatic
+# path conversion when running under MINGW/MSYS/Cygwin so docker paths
+# are passed unchanged.
+case "$(uname -s 2>/dev/null || echo)" in
+  MINGW*|MSYS*|CYGWIN*)
+    export MSYS_NO_PATHCONV=1
+    ;;
+  *)
+    ;;
+esac
+
 SONAR_TOKEN="sqa_ad1b7bb27fdb49b882502b90d5833b081dff42d3"
 OUT_ROOT="1-qualite/outputs"
 REPORT_DIR="$OUT_ROOT/reports"
@@ -120,6 +133,7 @@ while IFS=, read -r repo_name repo_url repo_sha <&3 || [ -n "$repo_name" ]; do
   # Chemin absolu pour éviter les problèmes Windows
   ABS_SRC_DIR="$(cd "$SRC_DIR" && pwd)"
   
+  # Run scanner but do not persist full logs to disk; keep console output minimal
   docker run --rm \
     --network "$SONAR_NETWORK" \
     -v "$ABS_SRC_DIR:/usr/src" \
@@ -132,19 +146,29 @@ while IFS=, read -r repo_name repo_url repo_sha <&3 || [ -n "$repo_name" ]; do
     -Dsonar.sources=. \
     -Dsonar.exclusions="**/*.html" \
     -Dsonar.javascript.node.maxspace=4096 \
-    </dev/null 2>&1 | grep -v "Downloading\|Download" | grep --line-buffered -E "(INFO: |EXECUTION|Analysis report|Load |Process |Index |Sensor )" || true
-  
+    </dev/null >/dev/null 2>&1 || true
+
   echo "   ✅ Scan terminé"
   echo "   ⏳ Attente du traitement SonarQube..."
   sleep 5
+
+  # Query Sonar CE activity for this project (do not save to disk)
+  CE_JSON=$(curl -s -u "$SONAR_TOKEN:" "http://localhost:9000/api/ce/activity?component=$PROJECT_KEY" || true)
+  echo "   --- Sonar CE activity (abrégé) ---"
+  echo "$CE_JSON" | head -n 6 || true
   
   # 3. Export CSV
   CSV_FILENAME="${repo_name}_report.csv"
   CSV_OUT_PATH="/app/1-qualite/outputs/reports/$CSV_FILENAME"
   
   echo "📊 Export des métriques SonarQube..."
+  # Run export script quietly (no log files). If CSV not produced, warn.
   docker-compose run --rm analysis python 1-qualite/export_to_csv.py \
-    "$PROJECT_KEY" "$SONAR_TOKEN" "$CSV_OUT_PATH" </dev/null 2>/dev/null | grep -E "(OK|ERREUR|🔑)" || true
+    "$PROJECT_KEY" "$SONAR_TOKEN" "$CSV_OUT_PATH" </dev/null >/dev/null 2>&1 || true
+  HOST_CSV_PATH="$REPORT_DIR/$CSV_FILENAME"
+  if [ ! -f "$HOST_CSV_PATH" ]; then
+    echo "   ⚠️ Export CSV introuvable pour $repo_name — l'export a échoué ou prend plus de temps"
+  fi
   
   # Lire le CSV et ajouter au summary
   HOST_CSV_PATH="$REPORT_DIR/$CSV_FILENAME"
