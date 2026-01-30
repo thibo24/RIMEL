@@ -12,27 +12,29 @@ if [ ! -f "3-activite-contributeurs/data/raw_commits_data.json" ]; then
     echo ""
 fi
 
-echo "=== Etape 1/4: Recuperation du nombre de contributeurs ==="
-docker-compose run --rm analysis python 2-nombre-contributeurs/get_contributors.py
-echo ""
+# echo "=== Etape 1/5: Recuperation du nombre de contributeurs ==="
+# docker-compose run --rm analysis python 2-nombre-contributeurs/get_contributors.py
+# echo ""
 
-echo "=== Etape 2/4: Analyse des types de commits ==="
+echo "=== Etape 2/5: Classification par patterns ==="
 docker-compose run --rm analysis python 3-activite-contributeurs/get_commits_types.py
 echo ""
 
-echo "=== Etape 3/4: Generation des premiers graphiques ==="
+if [ -f "3-activite-contributeurs/data/commits_other_for_ml.csv" ]; then
+    echo "=== Etape 3/5: Classification ML des commits non reconnus ==="
+    docker-compose run --rm analysis python 3-activite-contributeurs/train_and_apply_commit_classifier.py
+    echo ""
+else
+    echo "[INFO] Aucun dataset annoté ML trouvé, étape ML ignorée"
+fi
+
+echo "=== Etape 4/5: Generation des premiers graphiques ==="
 docker-compose run --rm analysis python 3-activite-contributeurs/generate_graphs.py
 echo ""
 
-echo "=== Etape 4/4: Generation des derniers graphiques ==="
-docker-compose run --rm analysis python 4-generation-graphiques/generate_graphs.py
-docker-compose run --rm analysis python 4-generation-graphiques/generate-violin-graph.py
-echo ""
+# echo "=== Etape 5/5: Generation des derniers graphiques ==="
+# docker-compose run --rm analysis python 4-generation-graphiques/generate_graphs.py
+# docker-compose run --rm analysis python 4-generation-graphiques/generate-violin-graph.py
+# echo ""
 
 echo "=== Pipeline termine avec succes! ==="
-echo ""
-echo "Resultats:"
-echo "  - 2-nombre-contributeurs/data/contributors.csv"
-echo "  - 3-activite-contributeurs/data/commits_types.csv"
-echo "  - 3-activite-contributeurs/outputs/graphs/*.png"
-echo "  - 4-generation-graphiques/outputs/graphs/*.png"
