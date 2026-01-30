@@ -19,24 +19,28 @@ df_summary["repo_name"] = df_summary["repo_url"].str.extract(
     r"dataforgoodfr/(.+)$"
 )[0]
 
+# Merge: keep only repos that have a group and a contributor count
 df = pd.merge(df_summary, df_groups, on="repo_name", how="inner")
 df = pd.merge(df, df_contributors, left_on="repo_name", right_on="repo", how="inner")
 
-def get_group_label(contributors):
-    if contributors < 9:
-        return "Groupe 1 (0-8 contributeurs)"
-    elif contributors < 20:
-        return "Groupe 2 (9-19 contributeurs)"
+# Compute dynamic labels for each repo_group based on contributor ranges
+group_labels = {}
+groups = []
+for g in sorted(df["repo_group"].unique()):
+    df_g = df[df["repo_group"] == g]
+    if df_g.empty:
+        continue
+    mn = int(df_g["contributors"].min())
+    mx = int(df_g["contributors"].max())
+    if mn == mx:
+        label = f"Groupe {g} ({mn} contributeurs)"
     else:
-        return "Groupe 3 (20+ contributeurs)"
+        label = f"Groupe {g} ({mn}-{mx} contributeurs)"
+    group_labels[g] = label
+    groups.append((g, label))
 
-df["group_label"] = df["contributors"].apply(get_group_label)
-
-groups = [
-    (1, "Groupe 1 (0-8 contributeurs)"),
-    (2, "Groupe 2 (9-19 contributeurs)"),
-    (3, "Groupe 3 (20+ contributeurs)")
-]
+# Map repo_group -> label on dataframe
+df["group_label"] = df["repo_group"].map(group_labels)
 
 print(f"Analyse de {len(df)} repos")
 

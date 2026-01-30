@@ -3,13 +3,24 @@ set -e
 
 echo "=== Pipeline d'analyse automatique ==="
 echo ""
+REPLAY=0
+if [ "$1" = "--replay" ] || [ "$1" = "-r" ]; then
+	REPLAY=1
+	echo "🔁 run_pipeline: mode replay activé — utilisation des SHA dans repos_url.csv"
+fi
+
 echo "📦 Construction de l'image Docker..."
-docker-compose build --quiet
+# Supprimer les warnings bruyants de docker-compose
+docker-compose build --quiet >/dev/null 2>&1 || true
 echo "   ✅ Image prête"
 echo ""
 
 echo "=== Etape 0/3: Analyse SonarQube + Commits + Contributeurs ==="
-bash 1-qualite/scan_repos.sh
+if [ "$REPLAY" -eq 1 ]; then
+	bash 1-qualite/scan_repos.sh --replay
+else
+	bash 1-qualite/scan_repos.sh
+fi
 echo ""
 
 echo "=== Etape 1/3: Analyse des types de commits ==="
@@ -21,6 +32,7 @@ echo "  -> Graphiques qualite (question 1)..."
 docker-compose run --rm analysis python 1-qualite/generate-graphs.py
 docker-compose run --rm analysis python 1-qualite/generate-violin-graph.py
 echo "  -> Graphiques qualite par groupe (question 2)..."
+docker-compose run --rm analysis python 2-nombre-contributeurs/compute_repo_groups.py
 docker-compose run --rm analysis python 2-nombre-contributeurs/generate_quality_graphs.py
 echo "  -> Graphiques activite (question 3)..."
 docker-compose run --rm analysis python 3-activite-contributeurs/generate_graphs.py

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-SONAR_TOKEN="sqa_db9586e56cd8c54ffd69f67c2d813564e8d3a47c"
+SONAR_TOKEN="sqa_ad1b7bb27fdb49b882502b90d5833b081dff42d3"
 OUT_ROOT="1-qualite/outputs"
 REPORT_DIR="$OUT_ROOT/reports"
 SRC_BASE="$OUT_ROOT/src"
@@ -12,6 +12,14 @@ mkdir -p "$REPORT_DIR" "$SRC_BASE" "3-activite-contributeurs/data"
 
 echo "=== Analyse SonarQube des dépôts ==="
 echo ""
+
+# Parse options
+REPLAY=0
+if [ "$1" = "--replay" ] || [ "$1" = "-r" ]; then
+  REPLAY=1
+  shift
+  echo "🔁 Mode replay activé — utilisation des SHA depuis $SUMMARY_CSV"
+fi
 
 # Démarrer SonarQube si nécessaire
 echo "🐳 Vérification de SonarQube..."
@@ -36,11 +44,10 @@ if [ -z "$SONAR_NETWORK" ] || [ "$SONAR_NETWORK" = "default" ]; then
   exit 1
 fi
 
-# Initialiser le CSV summary
-echo "repo_url,sha_commit,score,reliability,maintainability,security,duplication,complexity" > "$SUMMARY_CSV"
+# Initialiser le CSV summary (sans SHA)
+echo "repo_url,score,reliability,maintainability,security,duplication,complexity" > "$SUMMARY_CSV"
 
-# Initialiser les fichiers de métadonnées
-> "$OUT_ROOT/commits_meta.txt"
+# (plus de fichiers de métadonnées temporaires; on écrira directement le JSON final)
 echo "repo,contributors" > "2-nombre-contributeurs/data/contributors.csv"
 
 # Lire les repos
@@ -58,15 +65,13 @@ echo ""
 TOTAL_REPOS=$(tail -n +2 "$REPOS_CSV" | wc -l)
 CURRENT=0
 
-# Créer un fichier temporaire avec les repos (stable path)
-TEMP_REPOS="$OUT_ROOT/repos_list.tmp"
-tail -n +2 "$REPOS_CSV" > "$TEMP_REPOS"
+# Lire la liste des dépôts directement depuis le CSV (évite fichier temporaire)
+exec 3< <(tail -n +2 "$REPOS_CSV")
 
 # Traiter chaque repo
 # Ouvrir la liste sur le FD 3 pour éviter que des commandes dans la boucle lisent
 # depuis stdin et vident le fichier de la boucle.
-exec 3< "$TEMP_REPOS"
-while IFS=, read -r repo_name repo_url <&3 || [ -n "$repo_name" ]; do
+while IFS=, read -r repo_name repo_url repo_sha <&3 || [ -n "$repo_name" ]; do
   CURRENT=$((CURRENT + 1))
   
   echo "========================================"
@@ -79,13 +84,34 @@ while IFS=, read -r repo_name repo_url <&3 || [ -n "$repo_name" ]; do
   # 1. Clonage
   echo "⬇️  Clonage..."
   rm -rf "$SRC_DIR"
-  git clone --quiet "$repo_url" "$SRC_DIR" 2>/dev/null || {
+  if ! git clone "$repo_url" "$SRC_DIR"; then
     echo "❌ Échec du clonage"
     continue
-  }
+  fi
   
+  # Si on est en mode replay, tenter de récupérer le SHA depuis repos_url.csv (3ème colonne)
+  if [ "$REPLAY" = "1" ]; then
+    if [ -n "$repo_sha" ]; then
+      echo "   -> Checkout sur le SHA fourni dans repos_url.csv: $repo_sha"
+      git -C "$SRC_DIR" checkout --quiet "$repo_sha" || echo "   ⚠️ Échec du checkout sur $repo_sha"
+    else
+      echo "   ⚠️ Aucun SHA fourni pour $repo_name dans $REPOS_CSV; utilisation du HEAD actuel"
+    fi
+  fi
+
   SHA_COMMIT=$(git -C "$SRC_DIR" rev-parse HEAD)
   echo "   SHA: $SHA_COMMIT"
+
+  # Si on n'est PAS en mode replay, enregistrer/mettre à jour le SHA dans repos_url.csv
+  if [ "$REPLAY" -ne 1 ]; then
+    if [ -f "$REPOS_CSV" ]; then
+      awk -F',' -v OFS=',' -v name="$repo_name" -v sha="$SHA_COMMIT" '
+        NR==1 { print; next }
+        $1==name { $3=sha; print; next }
+        { print }
+      ' "$REPOS_CSV" > "$REPOS_CSV.tmp" && mv "$REPOS_CSV.tmp" "$REPOS_CSV"
+    fi
+  fi
   
   # 2. Scan SonarQube
   echo "🔍 Lancement du Scanner SonarQube..."
@@ -118,7 +144,7 @@ while IFS=, read -r repo_name repo_url <&3 || [ -n "$repo_name" ]; do
   
   echo "📊 Export des métriques SonarQube..."
   docker-compose run --rm analysis python 1-qualite/export_to_csv.py \
-    "$PROJECT_KEY" "$SONAR_TOKEN" "$CSV_OUT_PATH" </dev/null 2>&1 | grep -E "(OK|ERREUR|🔑)" || true
+    "$PROJECT_KEY" "$SONAR_TOKEN" "$CSV_OUT_PATH" </dev/null 2>/dev/null | grep -E "(OK|ERREUR|🔑)" || true
   
   # Lire le CSV et ajouter au summary
   HOST_CSV_PATH="$REPORT_DIR/$CSV_FILENAME"
@@ -126,7 +152,7 @@ while IFS=, read -r repo_name repo_url <&3 || [ -n "$repo_name" ]; do
     SCORE_LINE=$(tail -n +2 "$HOST_CSV_PATH" | head -n 1 | tr -d '\r')
     if [ -n "$SCORE_LINE" ]; then
       SCORES=$(echo "$SCORE_LINE" | awk -F',' '{print $2","$3","$4","$5","$6","$7}')
-      echo "$repo_url,$SHA_COMMIT,$SCORES" >> "$SUMMARY_CSV"
+      echo "$repo_url,$SCORES" >> "$SUMMARY_CSV"
       echo "   ✅ Métriques exportées"
     fi
   fi
@@ -136,45 +162,27 @@ while IFS=, read -r repo_name repo_url <&3 || [ -n "$repo_name" ]; do
   COMMITS_LIST=$(git -C "$SRC_DIR" log --pretty=format:%s 2>/dev/null || echo "")
   COMMITS_COUNT=$(echo "$COMMITS_LIST" | grep -c . || echo 0)
   
-  # Sauvegarder dans un fichier temporaire
-  OWNER=$(echo "$repo_url" | awk -F'/' '{print $(NF-1)}')
-  TEMP_FILE="$OUT_ROOT/temp_commits_${repo_name}.txt"
-  echo "$COMMITS_LIST" > "$TEMP_FILE"
-  echo "$repo_name|$OWNER|$TEMP_FILE" >> "$OUT_ROOT/commits_meta.txt"
+    OWNER=$(echo "$repo_url" | awk -F'/' '{print $(NF-1)}')
+
+    echo "   ✅ $COMMITS_COUNT commits extraits"
+
+    # Écrire directement dans le JSON final via le script Python séparé
+  printf '%s
+' "$COMMITS_LIST" | docker-compose run --rm -T analysis python 1-qualite/save_commits.py "$repo_name" "$OWNER" 2>/dev/null
   
-  echo "   ✅ $COMMITS_COUNT commits extraits"
-  
-  # 5. Compter les contributeurs — utiliser l'API GitHub (non-anonyme) avec cache
-  echo "👥 Comptage des contributeurs (API + cache)..."
-
-  OWNER=$(echo "$repo_url" | awk -F'/' '{print $(NF-1)}')
-  REPO=$(echo "$repo_url" | awk -F'/' '{print $NF}' | sed 's/.git$//')
-  CACHE_FILE="2-nombre-contributeurs/data/.contributors_cache"
-
-  API_COUNT=""
-  if [ -f "$CACHE_FILE" ]; then
-    API_COUNT=$(grep "^$repo_name," "$CACHE_FILE" | cut -d',' -f2 || true)
-  fi
-
-  if [ -z "$API_COUNT" ]; then
-    echo "   ⏳ Appel API GitHub (non-anonyme)..."
-    RESPONSE_HEADERS=$(curl -s -I "https://api.github.com/repos/$OWNER/$REPO/contributors?per_page=1") || RESPONSE_HEADERS=""
-    if echo "$RESPONSE_HEADERS" | grep -q 'rel="last"'; then
-      API_COUNT=$(echo "$RESPONSE_HEADERS" | sed -n 's/.*[?&]page=\([0-9]\+\).*rel="last".*/\1/p' | tail -n1 || true)
-    else
-      API_COUNT=$(curl -s "https://api.github.com/repos/$OWNER/$REPO/contributors?per_page=100" | grep -c '"login"' || echo 0)
-    fi
-    API_COUNT=${API_COUNT:-0}
-    mkdir -p "$(dirname "$CACHE_FILE")"
-    echo "$repo_name,$API_COUNT" >> "$CACHE_FILE"
-    echo "   ✅ API = $API_COUNT (appelé & stocké)"
-  else
-    echo "   ✅ API (depuis cache) = $API_COUNT"
-  fi
-
-  CONTRIBUTORS_COUNT=$API_COUNT
-  echo "   ✅ $CONTRIBUTORS_COUNT contributeurs (API)"
-
+  # 5. Compter les contributeurs (git local — adresses e-mail uniques)
+  echo "👥 Comptage des contributeurs (git local — adresses e-mail uniques)..."
+  # Compter les adresses e-mail uniques des auteurs de commit
+  # Exclure les contributeurs anonymes / emails no-reply
+  CONTRIBUTORS_COUNT=$(git -C "$SRC_DIR" log --format='%aN <%aE>' 2>/dev/null \
+    | sed '/^$/d' \
+    | grep -i -v -E 'noreply|no-reply|users\.noreply' \
+    | grep -v -E '<>' \
+    | grep -v -E '^[[:space:]]*(unknown|anonymous)' \
+    | sort -u \
+    | wc -l || echo 0)
+  CONTRIBUTORS_COUNT=${CONTRIBUTORS_COUNT:-0}
+  echo "   ✅ $CONTRIBUTORS_COUNT contributeurs (emails uniques, sans anonymes)"
   echo "$repo_name,$CONTRIBUTORS_COUNT" >> "2-nombre-contributeurs/data/contributors.csv"
   # 6. Supprimer le clone (force removal)
   echo "🗑️  Suppression du clone..."
@@ -185,46 +193,8 @@ while IFS=, read -r repo_name repo_url <&3 || [ -n "$repo_name" ]; do
   
   echo ""
 done
-exec 3<&-
-
 # Nettoyer le fichier temporaire
-rm -f "$TEMP_REPOS"
-
-# Convertir tous les commits en JSON
-echo ""
-echo "📦 Création du fichier JSON des commits..."
-docker-compose run --rm analysis python </dev/null -c "
-import json
-from pathlib import Path
-
-data = {}
-meta_file = Path('1-qualite/outputs/commits_meta.txt')
-
-if meta_file.exists():
-    for line in meta_file.read_text().strip().split('\n'):
-        if not line:
-            continue
-        parts = line.split('|')
-        if len(parts) == 3:
-            repo_name, owner, temp_file = parts
-            commits_file = Path(temp_file)
-            if commits_file.exists():
-                commits = [c for c in commits_file.read_text().strip().split('\n') if c]
-                data[repo_name] = {
-                    'repo': repo_name,
-                    'owner': owner,
-                    'commits': commits
-                }
-                commits_file.unlink()  # Supprimer le fichier temporaire
-
-# Sauvegarder le JSON final
-output = Path('3-activite-contributeurs/data/raw_commits_data.json')
-output.parent.mkdir(parents=True, exist_ok=True)
-output.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-
-total = sum(len(d['commits']) for d in data.values())
-print(f'✅ {len(data)} repos, {total} commits sauvegardés')
-"
+exec 3<&-
 
 echo ""
 echo "=========================================="
