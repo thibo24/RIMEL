@@ -17,12 +17,11 @@ TOKEN = sys.argv[2]
 OUTPUT_FILE = sys.argv[3]
 SONAR_URL = "http://sonarqube-server:9000"
 
-# Préparation de l'authentification
 auth_str = f"{TOKEN}:"
 b64_auth = base64.b64encode(auth_str.encode()).decode()
 headers = {"Authorization": f"Basic {b64_auth}"}
 
-print(f"🔑 Utilisation du token SonarQube pour le projet '{PROJECT_KEY}'")
+print(f"Utilisation du token pour le projet '{PROJECT_KEY}'")
 
 def count_files_via_component_tree(project_key: str, page_size: int = 500) -> int:
     page = 1
@@ -54,7 +53,7 @@ def count_files_via_component_tree(project_key: str, page_size: int = 500) -> in
 
 
 def rating_to_score(v) -> int:
-    print(f"   → Conversion de la note/rating '{v}' en score 0..100")
+    # Convertit rating A..E ou 1..5 en score 0..100
     # Sonar renvoie souvent "1.0".."5.0" pour *_rating (A..E)
     # 1->A, 2->B, 3->C, 4->D, 5->E
     mapping_num = {1: 100, 2: 80, 3: 60, 4: 40, 5: 20}
@@ -148,7 +147,7 @@ def fetch_project_score(project_key: str) -> dict:
         nb_files = 0
 
     if nb_files <= 0:
-        print("   → Métrique 'files' absente/invalide, fallback sur component_tree (FIL)...")
+        # fallback sur component_tree si nécessaire
         nb_files = count_files_via_component_tree(project_key)
 
     avg_cognitive_per_file = (cognitive_global / nb_files) if nb_files > 0 else 0.0
@@ -177,22 +176,20 @@ def fetch_project_score(project_key: str) -> dict:
         "cognitive_global": round(float(cognitive_global), 2),
     }
 
-print(f"📥 Récupération des scores pour {PROJECT_KEY}...")
+print(f"Récupération des scores pour {PROJECT_KEY}...")
 
 try:
     score_info = fetch_project_score(PROJECT_KEY)
 except Exception as e:
-    print(f"❌ Impossible de récupérer les métriques: {e}")
+    print(f"Erreur: impossible de récupérer les métriques: {e}")
     sys.exit(2)
 
 print(
-    f"🏁 Score={score_info['score']:.2f}/100 "
+    f"Score={score_info['score']:.2f}/100 "
     f"(R={score_info['reliability']:.0f}, M={score_info['maintainability']:.0f}, "
-    f"S={score_info['security']:.0f}, D={score_info['duplication']:.2f}, "
-    f"avgCC/file={score_info['avg_cognitive_per_file']:.4f})"
+    f"S={score_info['security']:.0f}, D={score_info['duplication']:.2f})"
 )
 
-# CSV (1 ligne) => facile à agréger ensuite
 fieldnames = [
     "project_key",
     "score",
@@ -211,4 +208,4 @@ with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as csvfile:
     writer.writeheader()
     writer.writerow(score_info)
 
-print(f"✅ Export score CSV terminé : {OUTPUT_FILE}")
+print(f"Export CSV: {OUTPUT_FILE}")

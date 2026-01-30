@@ -1,4 +1,6 @@
 import pandas as pd
+import warnings
+from plotnine.exceptions import PlotnineWarning
 from plotnine import (
     ggplot, aes, geom_bar, geom_hline, geom_boxplot,
     labs, theme_minimal, theme, element_text, scale_x_discrete
@@ -14,6 +16,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 df_summary = pd.read_csv(SUMMARY_CSV)
 df_groups = pd.read_csv(REPOS_GROUPS_CSV)
 df_contributors = pd.read_csv(CONTRIBUTORS_CSV)
+
+warnings.filterwarnings("ignore", category=PlotnineWarning)
 
 df_summary["repo_name"] = df_summary["repo_url"].str.extract(
     r"dataforgoodfr/(.+)$"
@@ -42,10 +46,7 @@ for g in sorted(df["repo_group"].unique()):
 # Map repo_group -> label on dataframe
 df["group_label"] = df["repo_group"].map(group_labels)
 
-print(f"Analyse de {len(df)} repos")
-
 global_median = df["score"].median()
-print(f"Médiane globale: {global_median:.2f}\n")
 
 for group_num, group_label in groups:
     df_group = df[df["repo_group"] == group_num].copy()
@@ -83,9 +84,9 @@ for group_num, group_label in groups:
         height=6,
         dpi=300
     )
-    print(f"Graphique sauvegardé: {filename}")
+    print(f"Graphique: {filename}")
 
-print("\n=== Génération du diagramme en boîtes ===")
+print("Génération du diagramme en boîtes")
 df_boxplot = df.copy()
 df_boxplot["group_label"] = pd.Categorical(
     df_boxplot["group_label"],
@@ -96,12 +97,7 @@ df_boxplot["group_label"] = pd.Categorical(
 for group_num, group_label in groups:
     df_group_stats = df_boxplot[df_boxplot["repo_group"] == group_num]
     if len(df_group_stats) > 0:
-        print(f"\n{group_label}:")
-        print(f"  Min: {df_group_stats['score'].min():.2f}")
-        print(f"  Q1 (25%): {df_group_stats['score'].quantile(0.25):.2f}")
-        print(f"  Médiane (50%): {df_group_stats['score'].median():.2f}")
-        print(f"  Q3 (75%): {df_group_stats['score'].quantile(0.75):.2f}")
-        print(f"  Max: {df_group_stats['score'].max():.2f}")
+        print(f"{group_label}: min={df_group_stats['score'].min():.2f}, med={df_group_stats['score'].median():.2f}, max={df_group_stats['score'].max():.2f}")
 
 boxplot = (
     ggplot(df_boxplot, aes(x="group_label", y="score", fill="group_label"))
@@ -125,6 +121,5 @@ boxplot.save(
     height=6,
     dpi=300
 )
-print(f"\nDiagramme en boîtes sauvegardé: {boxplot_filename}")
-
-print("\nTous les graphiques ont été générés avec succès dans", OUTPUT_DIR)
+print(f"Diagramme en boîtes: {boxplot_filename}")
+print("Graphiques écrits dans", OUTPUT_DIR)

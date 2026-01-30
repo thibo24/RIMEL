@@ -33,7 +33,7 @@ def main():
     with open(out, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-    print(f'✅ {repo}: {len(commits)} commits saved')
+    print(f"{repo}: {len(commits)} commits enregistrés")
 
 
 if __name__ == '__main__':

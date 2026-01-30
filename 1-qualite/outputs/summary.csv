@@ -1,2 +1,4 @@
 repo_url,score,reliability,maintainability,security,duplication,complexity
 https://github.com/dataforgoodfr/offseason-shelter-for-science,67.72,20.0,100.0,100.0,100.0,38.62
+https://github.com/dataforgoodfr/13_potentiel_solaire,77.36,20.0,100.0,100.0,100.0,86.82
+https://github.com/dataforgoodfr/13_democratiser_sobriete,53.21,20.0,100.0,40.0,72.0,39.06
