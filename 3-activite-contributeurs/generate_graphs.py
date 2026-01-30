@@ -1,4 +1,6 @@
 import pandas as pd
+import warnings
+from plotnine.exceptions import PlotnineWarning
 from plotnine import (
     ggplot, aes, geom_point, geom_smooth,
     labs, theme_minimal
@@ -14,6 +16,9 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 df_contributors = pd.read_csv(CONTRIBUTORS_CSV)
 df_commits = pd.read_csv(COMMITS_TYPES_CSV)
 
+# Fusionner les deux datasets sur le nom du repo
+warnings.filterwarnings("ignore", category=PlotnineWarning)
+ 
 # Fusionner les deux datasets sur le nom du repo
 df = pd.merge(df_commits, df_contributors, on="repo", how="inner")
 

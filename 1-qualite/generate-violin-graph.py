@@ -1,16 +1,19 @@
 import pandas as pd
+import warnings
+from plotnine.exceptions import PlotnineWarning
 from plotnine import (
     ggplot, aes, geom_violin, labs, theme_minimal, theme,
     element_text, element_blank, scale_y_continuous, geom_boxplot
 )
 from pathlib import Path
 
-SUMMARY_CSV = Path("1-qualite/sonar/output/summary.csv")
-OUTPUT_DIR = Path("4-generation-graphiques/graphs")
+SUMMARY_CSV = Path("1-qualite/outputs/summary.csv")
+OUTPUT_DIR = Path("1-qualite/outputs")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Charger les données
 df_summary = pd.read_csv(SUMMARY_CSV)
+
+warnings.filterwarnings("ignore", category=PlotnineWarning)
 
 print(f"Analyse de {len(df_summary)} repos")
 
@@ -39,15 +42,6 @@ plot = (
     )
 )
 
-# Sauvegarder le graphique
 output_path = OUTPUT_DIR / "sonarqube_scores_violin.png"
 plot.save(output_path, dpi=300)
-print(f"Graphique sauvegardé : {output_path}")
-
-# Afficher quelques statistiques
-print("\nStatistiques des scores:")
-print(f"Moyenne: {df_summary['score'].mean():.2f}")
-print(f"Médiane: {df_summary['score'].median():.2f}")
-print(f"Écart-type: {df_summary['score'].std():.2f}")
-print(f"Min: {df_summary['score'].min():.2f}")
-print(f"Max: {df_summary['score'].max():.2f}")
+print(f"Graphique: {output_path}")

@@ -9,6 +9,10 @@ services:
       - ./3-activite-contributeurs/outputs:/outputs
     working_dir: /app
     command: bash -c "echo 'Container ready'"
+    networks:
+      - sonar-net
+    depends_on:
+      - sonarqube
 
   sonarqube:
     image: sonarqube:community

@@ -3,12 +3,16 @@ import pandas as pd
 import joblib
 from pathlib import Path
 from collections import Counter
+import warnings
 
+from sklearn.exceptions import UndefinedMetricWarning
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
+
+warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
 
 ANNOTATED_DATA = Path("3-activite-contributeurs/data/commits_other_for_ml.csv")
 UNCLASSIFIED_JSON = Path("3-activite-contributeurs/data/commits_unclassified.json")
@@ -44,7 +48,12 @@ pipeline.fit(X_train, y_train)
 
 y_pred = pipeline.predict(X_test)
 print("=== Evaluation du classifieur ===")
-print(classification_report(y_test, y_pred))
+# Afficher un résumé concis plutôt que le rapport complet
+report = classification_report(y_test, y_pred, output_dict=True)
+acc = report.get("accuracy", 0.0)
+macro_f1 = report.get("macro avg", {}).get("f1-score", 0.0)
+print(f"Précision (accuracy): {acc:.2f}")
+print(f"Macro F1-score: {macro_f1:.2f}")
 
 joblib.dump(pipeline, MODEL_OUT)
 print(f"[OK] Modèle sauvegardé → {MODEL_OUT}")

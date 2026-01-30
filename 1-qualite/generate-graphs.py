@@ -1,18 +1,19 @@
 import pandas as pd
+import warnings
+from plotnine.exceptions import PlotnineWarning
 from plotnine import (
     ggplot, aes, geom_bar, labs, theme_minimal, theme,
     scale_fill_manual, element_text, scale_x_discrete
 )
 from pathlib import Path
 
-SUMMARY_CSV = Path("1-qualite/sonar/output/summary.csv")
-OUTPUT_DIR = Path("4-generation-graphiques/graphs")
+SUMMARY_CSV = Path("1-qualite/outputs/summary.csv")
+OUTPUT_DIR = Path("1-qualite/outputs")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Charger les données
 df_summary = pd.read_csv(SUMMARY_CSV)
 
-print(f"Analyse de {len(df_summary)} repos")
+warnings.filterwarnings("ignore", category=PlotnineWarning)
 
 # Créer des catégories de score
 def categorize_score(score):
@@ -70,11 +71,6 @@ plot = (
     )
 )
 
-# Sauvegarder le graphique
 output_path = OUTPUT_DIR / "sonarqube_scores_distribution.png"
 plot.save(output_path, dpi=300)
-print(f"Graphique sauvegardé : {output_path}")
-
-# Afficher aussi quelques statistiques
-print("\nDistribution des scores:")
-print(score_counts)
+print(f"Graphique: {output_path}")

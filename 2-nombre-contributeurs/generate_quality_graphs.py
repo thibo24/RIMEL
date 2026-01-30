@@ -1,11 +1,13 @@
 import pandas as pd
+import warnings
+from plotnine.exceptions import PlotnineWarning
 from plotnine import (
     ggplot, aes, geom_bar, geom_hline, geom_boxplot,
     labs, theme_minimal, theme, element_text, scale_x_discrete
 )
 from pathlib import Path
 
-SUMMARY_CSV = "1-qualite/sonar/output/summary.csv"
+SUMMARY_CSV = "1-qualite/outputs/summary.csv"
 REPOS_GROUPS_CSV = "2-nombre-contributeurs/repos_groups.csv"
 CONTRIBUTORS_CSV = "2-nombre-contributeurs/data/contributors.csv"
 OUTPUT_DIR = Path("2-nombre-contributeurs/graphs")
@@ -15,33 +17,36 @@ df_summary = pd.read_csv(SUMMARY_CSV)
 df_groups = pd.read_csv(REPOS_GROUPS_CSV)
 df_contributors = pd.read_csv(CONTRIBUTORS_CSV)
 
+warnings.filterwarnings("ignore", category=PlotnineWarning)
+
 df_summary["repo_name"] = df_summary["repo_url"].str.extract(
     r"dataforgoodfr/(.+)$"
 )[0]
 
+# Merge: keep only repos that have a group and a contributor count
 df = pd.merge(df_summary, df_groups, on="repo_name", how="inner")
 df = pd.merge(df, df_contributors, left_on="repo_name", right_on="repo", how="inner")
 
-def get_group_label(contributors):
-    if contributors < 9:
-        return "Groupe 1 (0-8 contributeurs)"
-    elif contributors < 20:
-        return "Groupe 2 (9-19 contributeurs)"
+# Compute dynamic labels for each repo_group based on contributor ranges
+group_labels = {}
+groups = []
+for g in sorted(df["repo_group"].unique()):
+    df_g = df[df["repo_group"] == g]
+    if df_g.empty:
+        continue
+    mn = int(df_g["contributors"].min())
+    mx = int(df_g["contributors"].max())
+    if mn == mx:
+        label = f"Groupe {g} ({mn} contributeurs)"
     else:
-        return "Groupe 3 (20+ contributeurs)"
+        label = f"Groupe {g} ({mn}-{mx} contributeurs)"
+    group_labels[g] = label
+    groups.append((g, label))
 
-df["group_label"] = df["contributors"].apply(get_group_label)
-
-groups = [
-    (1, "Groupe 1 (0-8 contributeurs)"),
-    (2, "Groupe 2 (9-19 contributeurs)"),
-    (3, "Groupe 3 (20+ contributeurs)")
-]
-
-print(f"Analyse de {len(df)} repos")
+# Map repo_group -> label on dataframe
+df["group_label"] = df["repo_group"].map(group_labels)
 
 global_median = df["score"].median()
-print(f"Médiane globale: {global_median:.2f}\n")
 
 for group_num, group_label in groups:
     df_group = df[df["repo_group"] == group_num].copy()
@@ -79,29 +84,20 @@ for group_num, group_label in groups:
         height=6,
         dpi=300
     )
-    print(f"Graphique sauvegardé: {filename}")
+    print(f"Graphique: {filename}")
 
-print("\n=== Génération du diagramme en boîtes ===")
+print("Génération du diagramme en boîtes")
 df_boxplot = df.copy()
 df_boxplot["group_label"] = pd.Categorical(
     df_boxplot["group_label"],
-    categories=[
-        "Groupe 1 (0-8 contributeurs)",
-        "Groupe 2 (9-19 contributeurs)",
-        "Groupe 3 (20+ contributeurs)"
-    ],
+    categories=[label for _, label in groups],
     ordered=True
 )
 
 for group_num, group_label in groups:
     df_group_stats = df_boxplot[df_boxplot["repo_group"] == group_num]
     if len(df_group_stats) > 0:
-        print(f"\n{group_label}:")
-        print(f"  Min: {df_group_stats['score'].min():.2f}")
-        print(f"  Q1 (25%): {df_group_stats['score'].quantile(0.25):.2f}")
-        print(f"  Médiane (50%): {df_group_stats['score'].median():.2f}")
-        print(f"  Q3 (75%): {df_group_stats['score'].quantile(0.75):.2f}")
-        print(f"  Max: {df_group_stats['score'].max():.2f}")
+        print(f"{group_label}: min={df_group_stats['score'].min():.2f}, med={df_group_stats['score'].median():.2f}, max={df_group_stats['score'].max():.2f}")
 
 boxplot = (
     ggplot(df_boxplot, aes(x="group_label", y="score", fill="group_label"))
@@ -125,6 +121,5 @@ boxplot.save(
     height=6,
     dpi=300
 )
-print(f"\nDiagramme en boîtes sauvegardé: {boxplot_filename}")
-
-print("\nTous les graphiques ont été générés avec succès dans", OUTPUT_DIR)
+print(f"Diagramme en boîtes: {boxplot_filename}")
+print("Graphiques écrits dans", OUTPUT_DIR)
