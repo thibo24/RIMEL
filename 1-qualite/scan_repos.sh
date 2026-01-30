@@ -184,7 +184,7 @@ while IFS=, read -r repo_name repo_url repo_sha <&3 || [ -n "$repo_name" ]; do
   printf '%s\n' "$COMMITS_LIST" | docker-compose run --rm -T analysis python 1-qualite/save_commits.py "$repo_name" "$OWNER" >/dev/null 2>&1 || true
   
   # 5. Compter les contributeurs (git local — adresses e-mail uniques)
-  echo -e "	Comptage des contributeurs (git local — adresses e-mail uniques)..."
+  echo -e "	Comptage des contributeurs..."
   # Compter les adresses e-mail uniques des auteurs de commit
   # Exclure les contributeurs anonymes / emails no-reply
   CONTRIBUTORS_COUNT=$(git -C "$SRC_DIR" log --format='%aN <%aE>' 2>/dev/null \
@@ -195,7 +195,7 @@ while IFS=, read -r repo_name repo_url repo_sha <&3 || [ -n "$repo_name" ]; do
     | sort -u \
     | wc -l || echo 0)
   CONTRIBUTORS_COUNT=${CONTRIBUTORS_COUNT:-0}
-  echo -e "	$CONTRIBUTORS_COUNT contributeurs (emails uniques, sans anonymes)"
+  echo -e "	$CONTRIBUTORS_COUNT contributeurs (emails uniques)"
   echo "$repo_name,$CONTRIBUTORS_COUNT" >> "2-nombre-contributeurs/data/contributors.csv"
   # 6. Supprimer le clone (force removal)
   chmod -R +w "$SRC_DIR" 2>/dev/null || true
